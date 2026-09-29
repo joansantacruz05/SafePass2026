@@ -37,6 +37,12 @@ fun SafePassScreen(
     var edadTexto by remember { mutableStateOf("") }
     var tipoEntradaTexto by remember { mutableStateOf("") }
 
+    // Estado reactivo del registro usando remember y mutableStateOf propio del nivel básico-intermedio.
+    var registroState by remember { mutableStateOf<RegistroState>(RegistroState.Idle) }
+
+    // Instancia de la Lógica de Negocio
+    val gestorAsistentes = remember { GestorAsistentes() }
+
     // Scaffold es la estructura base recomendada en Material Design.
     // Automáticamente maneja el Edge-to-Edge si se configura correctamente en la Actividad (API 36).
     Scaffold(
@@ -92,26 +98,71 @@ fun SafePassScreen(
             // Botón de acción para realizar el registro
             Button(
                 onClick = {
-                    // CONVERSIÓN SEGURA: 
-                    // Usamos toIntOrNull() para evitar un NumberFormatException ("crasheo").
-                    // Si el usuario deja la edad vacía o escribe letras, retornará 'null' en lugar de fallar.
-                    val edadLimpia: Int? = edadTexto.toIntOrNull()
+                    // CONVERSIÓN SEGURA E INYECCIÓN DE DEFAULT: 
+                    // Usamos toIntOrNull() para evitar NumberFormatException. 
+                    // Si el usuario ingresa letras o vacío, inyectamos 0 con el operador Elvis (?:).
+                    // Esto evita un crash, pero intencionalmente hace que falle la validación de negocio (esMayorDeEdad).
+                    val edadLimpia: Int = edadTexto.toIntOrNull() ?: 0
 
-                    // Creamos el objeto Asistente con los datos recolectados de la UI
-                    val nuevoAsistente = Asistente(
+                    // Delegamos toda la validación a la Lógica de Negocio (GestorAsistentes)
+                    // Esto devolverá directamente un RegistroState (Success o Error) según sus propias reglas
+                    val resultado = gestorAsistentes.validarRegistro(
                         nombre = nombreTexto.trim(),
                         edad = edadLimpia,
                         tipoEntrada = tipoEntradaTexto.trim()
                     )
 
-                    // Enviamos el objeto a la capa superior (simulado aquí con un callback)
-                    onRegistrarClick(nuevoAsistente)
+                    // Actualizamos el estado para que la UI reaccione (el "when" de abajo)
+                    registroState = resultado
+
+                    // Usamos la Función de Orden Superior 'procesarAsistente' si fue un éxito
+                    if (resultado is RegistroState.Success) {
+                        gestorAsistentes.procesarAsistente(resultado.asistente) { asistenteProcesado ->
+                            onRegistrarClick(asistenteProcesado)
+                        }
+                    }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 16.dp)
             ) {
                 Text("Registrar Asistente")
+            }
+
+            // CONTROL DE FLUJO REACTIVO EXHAUSTIVO
+            when (val state = registroState) {
+                is RegistroState.Idle -> {
+                    // Estado inicial: no se muestra nada extra
+                }
+                is RegistroState.Success -> {
+                    // USO DE SCOPE FUNCTION 'let': 
+                    // Garantiza el procesamiento seguro dentro del bloque
+                    state.asistente.let { asistente ->
+                        // Plantillas de cadena ($) para mostrar el resumen
+                        Text(
+                            text = "¡Éxito! Registrado: ${asistente.nombre}, Edad: ${asistente.edad}, Entrada: ${asistente.tipoEntrada}",
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
+                }
+                is RegistroState.Error -> {
+                    // Mensaje de error elegante
+                    Text(
+                        text = state.mensaje,
+                        color = androidx.compose.ui.graphics.Color.Red,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+            }
+
+            // Usamos obtenerAsistentes() para verificar y mostrar cuántas personas se han registrado
+            val listaConfirmados = gestorAsistentes.obtenerAsistentes()
+            if (listaConfirmados.isNotEmpty()) {
+                Text(
+                    text = "Total en el sistema: ${listaConfirmados.size} asistente(s)",
+                    modifier = Modifier.padding(top = 16.dp),
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.primary
+                )
             }
         }
     }

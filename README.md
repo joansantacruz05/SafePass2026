@@ -1,142 +1,220 @@
 # SafePass 2026 — Sistema de Gestión de Check-in y Validación de Asistentes
 
-## 1. Título y Contexto
-
-**SafePass 2026** es una aplicación Android destinada a la gestión del registro (check-in) de asistentes a un evento. Cumple dos funciones principales:
-
-- **Registrar** a cada asistente validando reglas de negocio antes de dar por válida su asistencia.
-- **Reportar** el resultado de esa validación de forma clara y consistente, distinguiendo entre un registro exitoso y un error de negocio (por ejemplo, un asistente menor de edad).
-
-El sistema se desarrolla en dos fases. La **Fase 1 (completada)** corresponde a la *lógica de negocio y las estructuras de datos*, escrita en Kotlin puro, sin ninguna dependencia de la interfaz gráfica. La **Fase 2 (pendiente)** corresponde al desarrollo de la interfaz en **Jetpack Compose**, a cargo de Persona B.
-
-> **Principio de diseño de la Fase 1:** la lógica de negocio es completamente independiente de la UI. Esto permite que la lógica sea testeable de forma aislada y que la capa visual solo se limite a *mostrar* el resultado, sin decidir reglas de negocio.
-
-**Stack tecnológico:** Kotlin · Android SDK 36 · minSdk 26 · Jetpack Compose (Material 3) · Gradle Kotlin DSL.
+> **Documento de soporte para el equipo de documentación.** Describe qué se implementó en el proyecto y qué evidencia capturar para el informe final en PDF. Última actualización: tras la integración completa de las Fases 1 y 2.
 
 ---
 
-## 2. Arquitectura Implementada (Fase 1)
+## 1. Visión General del Sistema
 
-La lógica de negocio reside en el paquete `com.example.myapplication`, distribuida en dos archivos:
+**SafePass 2026** es una aplicación Android para la gestión del registro (*check-in*) de asistentes a un evento. Su objetivo es validar los datos de cada asistente antes de confirmar su asistencia, distinguiendo de forma explícita entre un registro exitoso y un error de negocio (por ejemplo, un asistente menor de edad).
 
-| Archivo | Responsabilidad |
-|---|---|
-| `Asistente.kt` | Modelo de datos (estructura de datos del asistente). |
-| `GestorAsistentes.kt` | Estados de la UI, función de extensión, lógica de registro y función de orden superior. |
+El proyecto se desarrolló en dos fases, **ya integradas y funcionales**:
 
-### 2.1 La `data class Asistente` y la inmutabilidad (`val`)
+| Fase | Alcance | Responsable | Estado |
+|---|---|---|---|
+| **Fase 1** | Lógica de negocio y estructuras de datos (Kotlin puro, sin UI). | Persona A | Completada |
+| **Fase 2** | Interfaz gráfica y reactividad (Jetpack Compose + Material 3). | Persona B | Completada |
 
-`Asistente` es el modelo de datos que representa a una persona asistente al evento:
+**Principio arquitectónico:** la lógica de negocio es completamente independiente de la interfaz. `GestorAsistentes` no importa nada de Compose; la UI solo *invoca* y *muestra* el resultado. Esto permite testear las reglas de forma aislada y garantiza que la pantalla nunca decide por sí misma qué es un registro válido.
 
-- `nombre: String`
-- `edad: Int?` — **anulable a propósito**, ya que el campo podría no ingresarse.
-- `tipoEntrada: String` — por ejemplo, `VIP`, `General`, etc.
+**Archivos que componen el proyecto:**
 
-Se implementó como `data class` porque Kotlin genera de forma automática las funciones `equals()`, `hashCode()` y `toString()`, lo que facilita enormemente la comparación y el registro de objetos en pruebas o logs.
+| Archivo | Capa | Responsabilidad |
+|---|---|---|
+| `Asistente.kt` | Datos | Modelo de datos del asistente. |
+| `GestorAsistentes.kt` | Lógica | `RegistroState`, función de extensión, reglas de negocio y función de orden superior. |
+| `SafePassScreen.kt` | Interfaz | Pantalla Compose, reactividad y manejo de entradas. |
+| `MainActivity.kt` | Interfaz | Punto de entrada; activa Edge-to-Edge e invoca la pantalla. |
+| `ui/theme/` | Interfaz | Tema, colores y tipografía (Material 3). |
+
+**Stack tecnológico verificado:** Kotlin 2.0.0 · AGP 8.7.0 · Gradle 8.10.2 · Compose BOM 2024.04.01 (Material 3) · compileSdk / targetSdk 36 · minSdk 26 · Java 21.
+
+---
+
+## 2. Capa de Datos y Lógica (Fase 1)
+
+### 2.1 `data class Asistente` e inmutabilidad (`val`)
+
+`Asistente` es el modelo de datos que representa a un asistente, con tres propiedades: `nombre: String`, `edad: Int?` (anulable a propósito) y `tipoEntrada: String` (por ejemplo, `VIP`, `General`).
+
+Se implementó como `data class` porque Kotlin genera automáticamente `equals()`, `hashCode()` y `toString()`, lo que facilita la comparación de objetos y la generación de logs en pruebas.
 
 **¿Por qué las propiedades son inmutables (`val`)?**
 
-- **Previene efectos secundarios no deseados.** Al declarar todas las propiedades con `val`, una instancia de `Asistente` no puede ser alterada una vez creada. Si un asistente es válido, *es* válido durante toda la ejecución: no puede "cambiar de edad" a mitad del flujo y corromper la lista interna.
-- **Facilita el razonamiento y la seguridad en la UI.** Un objeto inmutable puede llegar a cualquier `composable` de Compose sin riesgo de ser alterado por una recomposición, lo que se alinea con el modelo de datos inmutable de Compose.
-- **Protege la encapsulación del gestor.** El `GestorAsistentes` mantiene su lista privada `listaAsistentes`. Al exponerla mediante `obtenerAsistentes()`, retorna una **copia defensiva** (`toList()`), de modo que el exterior nunca pueda modificar la lista interna. Esta decisión complementaria refuerza el mismo principio de inmutabilidad.
+- **Previene efectos secundarios.** Una instancia de `Asistente` no puede alterarse tras crearse: un asistente válido lo es durante toda la ejecución y no puede "cambiar de edad" a mitad del flujo, lo que corrompería la lista interna.
+- **Es coherente con el modelo de Compose.** Compose recompondrá la pantalla con frecuencia; los objetos inmutables pueden pasarse a cualquier `@Composable` sin riesgo de ser alterados, ya que las actualizaciones viajan por recomposición y no por mutación silenciosa.
+- **Refuerza la encapsulación del gestor.** `GestorAsistentes` expone su lista mediante `obtenerAsistentes()`, que retorna una **copia defensiva** (`toList()`). El exterior nunca puede modificar la lista interna, aplicando el mismo principio de inmutabilidad un nivel más arriba.
 
-### 2.2 La `sealed class RegistroState` (Idle, Success, Error)
+### 2.2 `sealed class RegistroState` (Idle, Success, Error)
 
-`RegistroState` modela el **resultado** de una validación de registro. Al ser `sealed`, el compilador garantiza que solo existan las subclases declaradas:
+`RegistroState` modela el resultado de una validación. Al ser `sealed`, el compilador garantiza que solo existan las subclases declaradas:
 
-- `data object Idle` — estado inicial/reposo: no se ha realizado ninguna validación.
-- `data class Success(val asistente: Asistente)` — el registro fue exitoso e incluye al asistente creado.
-- `data class Error(val mensaje: String)` — el registro falló e incluye un mensaje legible para el usuario.
+- `data object Idle` — estado inicial/reposo; aún no se ha realizado ninguna validación.
+- `data class Success(val asistente: Asistente)` — registro exitoso; transporta al asistente creado.
+- `data class Error(val mensaje: String)` — registro fallido; transporta un mensaje legible para el usuario.
 
-**Mejora de seguridad para la interfaz:** al ser una unión cerrada de estados, la UI podrá consumirla con una expresión `when` **exhaustiva**. El compilador obliga a cubrir todos los casos, por lo que no hace falta una cláusula `else` ni valores nulos o centinelas para representar la ausencia de datos. Esto previene estados indefinidos y excepciones en tiempo de ejecución. (Ver la sección 4 para el uso exacto de esta información en el informe.)
+**Mejora de seguridad para la interfaz:** por ser una unión cerrada de estados, la UI puede consumirla con un `when` **exhaustivo**, sin cláusula `else` ni valores nulos o centinelas que representen la ausencia de datos. El compilador obliga a cubrir todos los casos, por lo que es imposible que la pantalla quede en un estado indefinido. Este es el sustento teórico del párrafo obligatorio de la sección 4.1.
 
-### 2.3 Función de extensión y función de orden superior
-
-En `GestorAsistentes.kt` se implementaron dos constructs de Kotlin de alcance medio:
+### 2.3 Extension Function y Higher-Order Function
 
 **a) Función de extensión** — `fun Int.esMayorDeEdad(): Boolean`
 
-Permite evaluar la mayoría de edad **como si fuera un método propio del tipo `Int`**, sin necesidad de una función auxiliar global ni una clase de utilidad. Se invoca de forma natural y legible:
+Permite evaluar la mayoría de edad **como si fuera un método propio del tipo `Int`**, sin una función auxiliar global ni una clase de utilidad. Se invoca de forma natural: `if (edadValida.esMayorDeEdad())`. Su ventaja es la **extensibilidad**: añade comportamiento a tipos ya existentes, incluidos los de la biblioteca estándar, sin modificarlos.
+
+**b) Función de orden superior** — `fun procesarAsistente(asistente: Asistente, operacion: (Asistente) -> Unit)`
+
+Acepta como parámetro **otra función** y la ejecuta. Esto permite inyectar el comportamiento desde fuera —registrar un log, activar una notificación, aplicar una validación de prioridad— sin acoplar `GestorAsistentes` a ninguna de esas tareas. Es una aplicación del **Principio de Inversión de Dependencias**: la clase define *qué* hacer, el llamador decide *con qué*.
+
+En la UI, la función se consume pasándole una lambda como callback:
 
 ```kotlin
-if (edadValida.esMayorDeEdad()) { ... }
+gestorAsistentes.procesarAsistente(resultado.asistente) { asistenteProcesado ->
+    onRegistrarClick(asistenteProcesado)
+}
 ```
 
-Su ventaja principal es la **extensibilidad**: puede añadir comportamiento a tipos ya existentes (incluidos los de la biblioteca estándar) sin modificarlos.
+### 2.4 Scope functions y operador Elvis en la lógica
 
-**b) Función de orden superior (Higher-Order Function)** — `fun procesarAsistente(asistente: Asistente, operacion: (Asistente) -> Unit)`
-
-Acepta como parámetro **otra función** (`(Asistente) -> Unit`) y la ejecuta. Esto permite que el comportamiento se inyecte desde fuera — por ejemplo, aplicar una validación de prioridad, registrar un log o activar una notificación — sin acoplar `GestorAsistentes` a ninguna de esas tareas concretas. Es una aplicación directa del **Principio de Inversión de Dependencias**: la clase define *qué* hacer (ejecutar una operación), mientras el llamador decide *con qué* hacerlo.
+- **`let`** — `edad?.let { edadValida -> ... }` actúa como barrera: el bloque solo se ejecuta si la edad no es nula, evitando un `NullPointerException`.
+- **`apply`** — se aplica al construir el `Asistente`; recibe el objeto como receptor (`this`) y devuelve el mismo objeto, permitiendo configurarlo de forma encadenada sin perder la referencia.
+- **Elvis `?:`** — cierra la cadena: `return edad?.let { ... } ?: RegistroState.Error("La edad no puede ser nula.")`. Si la edad es válida devuelve `Success`; si es nula, provee un `Error` controlado en lugar de propagar un cierre forzado.
 
 ---
 
-## 3. Seguridad y Prevención de Crashes
+## 3. Capa de Interfaz y Reactividad (Fase 2)
 
-El objetivo de esta sección es demostrar que el sistema **no se bloquea (no lanza excepciones) ante datos inválidos, incompletos o nulos**, en lugar de forzar cierres inseguros.
+### 3.1 Construcción de la UI: `Scaffold` y `Column` con Edge-to-Edge (API 36)
 
-### 3.1 Conversión segura de tipos (`toIntOrNull()` / `toDoubleOrNull()`)
+La pantalla se construye en `SafePassScreen.kt` con dos contenedores jerárquicos:
 
-- **Estado: se aplicará en la Fase 2 (capa de UI).** En la frontera de entrada de datos, los campos de texto se convierten con `toIntOrNull()` / `toDoubleOrNull()` en lugar de `toInt()` / `toDouble()`. A diferencia de las conversiones forzadas —que lanzan `NumberFormatException` y cierran la app ante un texto no numérico—, las conversiones seguras devuelven `null` ante cualquier error de formato, lo que permite enrutarlo a un `RegistroState.Error` en lugar de propagar la excepción. *(Nota: la lógica de la Fase 1 ya recibe la edad como `Int?` y valida su nulabilidad; la conversión de `String` a `Int` se incorporará en `MainActivity`/Compose.)*
+- **`Scaffold`** — es la estructura base recomendada por Material Design. Proporciona la `TopAppBar` con el título "SafePass 2026" y, además, entrega un `innerPadding` que refleja los límites del sistema.
+- **`Column`** — alinea verticalmente los campos de entrada, el botón y la zona de resultados, usando `Arrangement.spacedBy(16.dp)` y `Modifier.fillMaxWidth()`.
 
-### 3.2 Scope functions: `let` y `apply` (implementadas en Fase 1)
-
-- **`let` (scope function)** — Se usa en `validarRegistro()` para ejecutar la lógica de negocio **solo si la edad no es nula**. `edad?.let { edadValida -> ... }` actúa como una barrera: el bloque interno únicamente se ejecuta cuando existe un valor, y se omite por completo en caso contrario, evitando un `NullPointerException`.
-- **`apply` (scope function)** — Se usa al construir el `Asistente` dentro del mismo `let`. `apply` recibe el objeto como receptor (`this`) y devuelve el mismo objeto, por lo que permite configurar o registrar el asistente de forma encadenada sin perder la referencia al resultado.
-
-Ambas pueden resumirse así: `let` **filtra por nulidad** y `apply` **encadena la construcción del objeto**.
-
-### 3.3 Operador Elvis `?:` (implementado en Fase 1)
-
-El operador Elvis `?:` es la herramienta de Kotlin que permite proporcionar un valor por defecto cuando una expresión es `null`. En `validarRegistro()` se usa al final de la cadena:
+**Edge-to-Edge.** `MainActivity` invoca `enableEdgeToEdge()` antes de `setContent { }`. En **API 36 el modo Edge-to-Edge es obligatorio**, por lo que el contenido se dibuja detrás de las barras de estado y navegación del sistema. La solución adoptada es aplicar el `innerPadding` que entrega el `Scaffold`:
 
 ```kotlin
-return edad?.let { edadValida -> ... } ?: RegistroState.Error("La edad no puede ser nula.")
+Column(
+    modifier = Modifier
+        .fillMaxSize()
+        .padding(innerPadding)   // respeta las barras del sistema
+        .padding(horizontal = 16.dp, vertical = 24.dp)
+)
 ```
 
-Es decir: si la edad es válida, devuelve `RegistroState.Success(...)`; si es `null` (el `let` no se ejecutó y devolvió `null`), el operador Elvis provee un valor por defecto —un `RegistroState.Error`— que la interfaz mostrará al usuario. Así se **sustituye el cierre forzado ante un dato nulo por un mensaje de error controlado**.
+Sin este `padding`, los campos de texto quedarían ocultos bajo la barra de estado. Este detalle es verificable en las capturas del emulador y debe mencionarse en el informe.
+
+### 3.2 Estado reactivo y `when` exhaustivo
+
+La reactividad se apoya en `remember` + `mutableStateOf`, con delegación por propiedad (`by`), de modo que los valores sobreviven a las recomposiciones:
+
+```kotlin
+var nombreTexto     by remember { mutableStateOf("") }
+var edadTexto       by remember { mutableStateOf("") }
+var tipoEntradaTexto by remember { mutableStateOf("") }
+var registroState   by remember { mutableStateOf<RegistroState>(RegistroState.Idle) }
+```
+
+`remember { GestorAsistentes() }` conserva la instancia de la lógica de negocio entre recomposiciones, por lo que el contador de asistentes registrados se mantiene.
+
+El control de flujo se resuelve con un `when` **exhaustivo y sin `else`**, que reacciona a los tres estados:
+
+| Estado | Comportamiento de la UI | Texto mostrado |
+|---|---|---|
+| `Idle` | No renderiza nada adicional. | — (solo los campos vacíos) |
+| `Success` | Muestra el resumen del registro. | `¡Éxito! Registrado: {nombre}, Edad: {edad}, Entrada: {tipoEntrada}` |
+| `Error` | Muestra el mensaje en color rojo. | `El asistente es menor de edad.` / `Faltan datos obligatorios (nombre o tipo de entrada).` |
+
+Además, `obtenerAsistentes()` alimenta una línea de resumen: `Total en el sistema: {n} asistente(s)`, que solo aparece cuando hay al menos un registro.
+
+**Cadena reactiva completa:** evento `onClick` → `toIntOrNull()` → `validarRegistro()` (Fase 1) → `registroState` se actualiza → Compose recompone → el `when` renderiza el estado correspondiente. La UI nunca decide una regla de negocio; solo refleja el resultado.
+
+### 3.3 Manejo seguro de entradas de texto
+
+En el `onClick` del botón se concentra la defensa contra datos inválidos:
+
+```kotlin
+val edadLimpia: Int = edadTexto.toIntOrNull() ?: 0
+```
+
+- **`.toIntOrNull()`** — conversión segura. A diferencia de `.toInt()`, que lanza `NumberFormatException` y cerraría la app si el usuario escribe letras, devuelve `null` ante cualquier error de formato. La app **nunca crashea por entrada inválida**.
+- **Elvis `?:` como respaldo** — provee el valor por defecto (`0`) cuando la conversión devuelve `null` por campo vacío o texto no numérico. La app continúa su flujo normal en lugar de propagar la excepción.
+- **Scope function `let` + plantillas de cadena (`$`)** — en la rama `Success`, `state.asistente.let { asistente -> ... }` garantiza que el bloque solo se ejecute con un asistente disponible, y la plantilla `"${asistente.nombre}, Edad: ${asistente.edad}, Entrada: ${asistente.tipoEntrada}"` compone el resumen sin concatenaciones manuales ni conversiones que puedan fallar. Además, el *smart cast* garantizado por el `when` hace que el acceso a `state.asistente` y `state.mensaje` sea seguro sin `!!` ni casts manuales.
+
+Complementariamente, `keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)` restringe el teclado a numeración y `.trim()` normaliza los textos antes de enviarlos a la lógica.
+
+> **Comportamiento a documentar:** al usar `?: 0`, una edad vacía o no numérica se convierte en `0`, que falla la regla de `esMayorDeEdad()` y produce el mensaje *"El asistente es menor de edad."*. En consecuencia, desde la interfaz **nunca** se alcanza el mensaje *"La edad no puede ser nula."*, que queda reservado para invocaciones directas de la lógica con `edad = null`. Las capturas del escenario de error deben mostrar, por tanto, el mensaje real.
 
 ---
 
-## 4. Instrucciones para el Equipo de Documentación (¡Muy Importante!)
+## 4. Lista de Tareas para el Equipo de Documentación (¡Urgente!)
 
-A continuación, las tareas concretas que el equipo de documentación debe realizar. Léanlas con atención y, ante cualquier duda, consulten al responsable técnico antes de redactar.
+### 4.1 Redacción APA 7 — párrafo obligatorio (máx. 150 palabras)
 
-### 4.1 Captura de pantalla de la estructura de paquetes y archivos — ¡Ya pueden realizarla!
-
-- **Pueden proceder ahora mismo a capturar la pantalla** de la estructura de paquetes y archivos directamente desde Android Studio. No es necesario esperar a que termine la interfaz gráfica, porque la captura corresponde al árbol de archivos de la **Fase 1**, que ya está completo.
-- **Ruta sugerida en Android Studio:** en el panel **Project**, ubique el módulo `app` → `src/main/java/com/example/myapplication/`, o bien active la vista de árbol con **Project** (no *Android*) en el desplegable superior para que se muestren las carpetas y no solo los recursos.
-- **Título sugerido para la figura en el informe:** *"Figura 1. Estructura de paquetes y archivos de la lógica de negocio (Fase 1)."*
-- **Nota importante para la leyenda:** el paquete actual es `com.example.myapplication` (el nombre por defecto de la plantilla de Android Studio). Si en la leyenda de la figura lo nombran como "SafePass 2026", indiquen explícitamente que se trata del paquete del proyecto, para que la correspondencia con el código sea clara.
-
-### 4.2 Explicación obligatoria de máximo 150 palabras sobre la `sealed class`
-
-- Ya pueden redactar este apartado del informe. **Pueden basarse en la información de la sección 2.2** de este documento, que describe cómo la `sealed class RegistroState` mejora la seguridad de la interfaz gráfica.
-- **Requisito estricto:** el texto final **no debe superar las 150 palabras**. Se recomienda escribir entre 120 y 145 palabras para tener margen.
-- El texto debe cubrir tres ideas, en este orden: (1) qué es una unión cerrada de estados; (2) que permite un `when` exhaustivo sin `else`, obligando al compilador a cubrir todos los casos; y (3) que esto evita estados indefinidos y previene errores en tiempo de ejecución.
-- *Borrador opcional de referencia (123 palabras — editable libremente, siempre por debajo del límite):*
+- Redacten el párrafo que explica **cómo la `sealed class` mejora la seguridad de la interfaz**, tomando como sustento la **sección 2.2** de este documento.
+- **Requisito estricto: máximo 150 palabras.** Redacten entre 120 y 145 palabras para dejar margen.
+- Estructure el texto en este orden: (1) qué es una unión cerrada de estados; (2) que permite un `when` exhaustivo sin `else`, obligando al compilador a cubrir todos los casos; (3) que esto evita estados indefinidos y previene errores en tiempo de ejecución.
+- **Formato APA 7:** párrafo en bloque, sin viñetas, sin sangría de primera línea;Times New Roman 12 o Arial 11, interlineado doble. Citar el proyecto con formato APA (p. ej.: *SafePass 2026* [Proyecto de software], repositorio GitHub, 2026).
+- *Borrador de referencia — 123 palabras, editable y siempre por debajo del límite:*
 
   > La clase sellada `RegistroState` actúa como una unión cerrada de estados posibles durante el registro de un asistente. Al ser `sealed`, el compilador garantiza que solo existan las subclases declaradas: `Idle`, `Success` y `Error`. Esta restricción permite que la interfaz gráfica ejecute un `when` exhaustivo, sin necesidad de una cláusula `else`, ya que el compilador obliga a manejar todos los casos. Gracias a esto, la UI nunca queda en un estado indefinido ni debe recurrir a valores nulos o sentinelas para representar la ausencia de datos. En lugar de múltiples variables y banderas booleanas dispersas, todo el resultado del registro viaja en un único objeto tipado y seguro, lo que simplifica el renderizado de la pantalla y previene excepciones en tiempo de ejecución.
 
-### 4.3 Capturas del emulador — ¡Aún NO pueden tomarlas!
+### 4.2 Captura 1 — Estructura de paquetes y archivos (Android Studio)
 
-Las siguientes capturas **deben esperar a la Fase 2**, es decir, a que **Persona B termine la interfaz gráfica en Jetpack Compose**. No se deben generar imágenes-placeholder ni modificarlas:
+- En Android Studio, abra el panel **Project** y seleccione la vista de árbol **Project** (no *Android*) en el desplegable superior, para que se muestren las carpetas y no solo los recursos.
+- Ubique el módulo `app` → `src/main/java/com/example/myapplication/`. Debe verse la estructura completa: `Asistente.kt`, `GestorAsistentes.kt`, `SafePassScreen.kt`, `MainActivity.kt` y la carpeta `ui/theme/`.
+- Título sugerido: *"Figura 1. Estructura de paquetes y archivos del proyecto SafePass 2026."*
+- **Nota para la leyenda:** el paquete es `com.example.myapplication` (nombre por defecto de la plantilla de Android Studio). Si lo denominan "SafePass 2026" en la figura, indiquen explícitamente que corresponde al paquete del proyecto, para que la correspondencia con el código sea inequívoca.
 
-1. **Pantalla inicial.**
-2. **Registro exitoso.**
-3. **Manejo de error.**
+### 4.3 Capturas 2, 3 y 4 — Emulador API 36
 
-Una vez que Compose esté integrado, la fuente de verdad para estas imágenes será el emulador ejecutando la app con datos reales (un asistente válido, un asistente menor de edad y un asistente con edad nula o inválida), no esquemas ni mockups. **No adelanten estas capturas.**
+Configure un dispositivo virtual con **imagen de sistema API 36** (Device Manager → *Create Device* → API 36), que es la condición para observar el comportamiento Edge-to-Edge descrito en la sección 3.1. Ejecute la app desde Android Studio y capture los tres escenarios **con estos datos exactos**, para que las leyendas coincidan con la evidencia.
 
----
+| # | Estado | Datos a ingresar | Qué debe verse en pantalla |
+|---|---|---|---|
+| **2** | `Idle` | Dejar los tres campos vacíos, sin pulsar el botón. | `TopAppBar` "SafePass 2026", tres campos vacíos y el botón "Registrar Asistente". Sin mensaje de resultado ni línea de total. |
+| **3** | `Success` | Nombre: `Ana Torres` · Edad: `25` · Entrada: `VIP` → pulsar **Registrar Asistente**. | `¡Éxito! Registrado: Ana Torres, Edad: 25, Entrada: VIP` y `Total en el sistema: 1 asistente(s)`. |
+| **4** | `Error` | Nombre: `Luis Gomez` · Edad: `16` · Entrada: `General` → pulsar **Registrar Asistente**. | `El asistente es menor de edad.` en rojo. Sin línea de total. |
 
-### Resumen de estado
+- Títulos sugeridos: *"Figura 2. Pantalla inicial (estado Idle)."*, *"Figura 3. Registro exitoso (estado Success)."*, *"Figura 4. Manejo de error de validación (estado Error)."*
+- Elija el caso **menor de edad** para la Figura 4 porque ejercita directamente la *extension function* `esMayorDeEdad()` descrita en la sección 2.3. **No** usen un campo de edad vacío esperando el mensaje *"La edad no puede ser nula."*: ese texto no es alcanzable desde la UI (ver la nota de la sección 3.3).
+- Capturas con el cursor y el teclado numérico visibles; no use imágenes placeholder ni mockups.
 
-| Ítem | Estado |
-|---|---|
-| Estructura de datos (`data class Asistente`) | Completado |
-| Estados de UI (`sealed class RegistroState`) | Completado |
-| Función de extensión + HOF | Completado |
-| Scope functions (`let`, `apply`) y Elvis (`?:`) | Completado |
-| Conversión segura (`toIntOrNull()` / `toDoubleOrNull()`) | Pendiente (Fase 2) |
-| Interfaz gráfica (Jetpack Compose) | Pendiente (Persona B) |
-| Capturas de pantalla del emulador | Pendiente (Fase 2) |
+### 4.4 Evidencia GitHub — historial y enlace público
+
+- **Enlace público al repositorio:** `https://github.com/joansantacruz05/SafePass2026`
+- Verifique que el repositorio sea **público** y que el código esté subido en la rama `master` antes de adjuntar el enlace.
+- **Captura del historial:** abra la pestaña **Commits** del repositorio (o ejecute `git log --oneline` en Android Studio) y capture los **4 commits** de la rama `master`. Los mensajes reales son los siguientes; **no las invente ni las reescriban**, deben coincidir con los de la evidencia:
+
+| # | Commit | Mensaje real | Contenido |
+|---|---|---|---|
+| 1 | `6e31cfe` | `feat: realización del data model + correccion de codigo.` | `Asistente.kt` — modelo de datos. |
+| 2 | `bbf7850` | `feat: validación de lógica, actualización de README.MD` | `GestorAsistentes.kt` — reglas de negocio. |
+| 3 | `f15cb87` | `feat: implementación de interfaz y gestión de UI State` | `MainActivity.kt` + `RegistroState`. |
+| 4 | `7b0895c` | `feat: finalización de Compose Screen, proyecto completado a la espera de futuras integraciones` | `SafePassScreen.kt` — pantalla Compose. |
+
+- Título sugerido: *"Figura 5. Historial de versiones del proyecto en GitHub (rama master)."*
+- En el texto del informe, la equivalencia con los commits de referencia del enunciado es: `feat: data model` → commit 1, `feat: logic validation` → commit 2, `feat: ui state` → commit 3, `feat: compose screen` → commit 4.
+
+### 4.5 Exportación final — verificación del `.zip` antes de subir a Moodle
+
+**Método recomendado:** descarguen una **copia fresca** clonando el repositorio de GitHub y comprimir esa carpeta. Así se garantiza que no se incluyan archivos locales de la máquina.
+
+```bash
+git clone https://github.com/joansantacruz05/SafePass2026.git
+```
+
+Antes de comprimir, verifiquen la checklist técnica:
+
+| Elemento | Valor exigido | Dónde se comprueba |
+|---|---|---|
+| **Java** | Versión **21** | `app/build.gradle.kts` → `sourceCompatibility` / `targetCompatibility` / `jvmTarget = "21"` |
+| **API level** | `compileSdk = 36`, `targetSdk = 36`, `minSdk = 26` | `app/build.gradle.kts` → `android { }` |
+| **Gradle (blindado)** | Wrapper **8.10.2** | `gradle/wrapper/gradle-wrapper.properties` |
+| **Android Gradle Plugin** | **8.7.0** | `gradle/libs.versions.toml` → `agp` |
+| **Kotlin** | **2.0.0** | `gradle/libs.versions.toml` → `kotlin` |
+| **Compose BOM** | **2024.04.01** | `gradle/libs.versions.toml` → `composeBom` |
+
+- **Compilación de prueba (obligatoria):** desde la raíz del proyecto ejecuten `.\gradlew.bat clean build` y confirmen que finaliza con `BUILD SUCCESSFUL` y **sin errores**. Adjunten el resultado en su mensaje de entrega.
+- **Excluyan del `.zip`:** `local.properties` (contiene la ruta local del SDK, es específica de cada equipo y ya está en `.gitignore`), las carpetas `.gradle/` y `build/`, y `.idea/`.
+- El archivo `gradle-wrapper.jar` **sí debe incluirse**; sin él, el proyecto no compilará en el equipo del docente.
+- Denle al archivo un nombre descriptivo, por ejemplo: `SafePass2026_Apellido1_Apellido2.zip`.

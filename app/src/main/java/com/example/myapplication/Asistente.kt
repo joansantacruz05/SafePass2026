@@ -12,5 +12,7 @@ data class Asistente(
     val edad: Int?,
     
     // El tipo de entrada que posee el asistente (ej. VIP, General, etc.).
-    val tipoEntrada: String
+    val tipoEntrada: String,
+
+    val cedula: String
 )

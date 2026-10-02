@@ -36,6 +36,7 @@ fun SafePassScreen(
     var nombreTexto by remember { mutableStateOf("") }
     var edadTexto by remember { mutableStateOf("") }
     var tipoEntradaTexto by remember { mutableStateOf("") }
+    var cedulaTexto by remember {mutableStateOf("")}
 
     // Estado reactivo del registro usando remember y mutableStateOf propio del nivel básico-intermedio.
     var registroState by remember { mutableStateOf<RegistroState>(RegistroState.Idle) }
@@ -94,6 +95,18 @@ fun SafePassScreen(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
+            OutlinedTextField(
+                value = cedulaTexto,
+                onValueChange = {
+                    if (it.length <=10){
+                        cedulaTexto = it
+                    }
+                },
+                label = { Text("Número de cedula: ")},
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+            )
 
             // Botón de acción para realizar el registro
             Button(
@@ -104,12 +117,20 @@ fun SafePassScreen(
                     // Esto evita un crash, pero intencionalmente hace que falle la validación de negocio (esMayorDeEdad).
                     val edadLimpia: Int = edadTexto.toIntOrNull() ?: 0
 
+                    val cedulaLimpia = cedulaTexto.trim()
+                    if(cedulaLimpia.length != 10 || !cedulaLimpia.all{
+                        it.isDigit()
+                    }){
+                        registroState = RegistroState.Error("La cédula debe tener 10 números.")
+                    return@Button}
+
                     // Delegamos toda la validación a la Lógica de Negocio (GestorAsistentes)
-                    // Esto devolverá directamente un RegistroState (Success o Error) según sus propias reglas
+                    // Esto devolverá directamente un RegistroState (Success o Error) según sus propias regla
                     val resultado = gestorAsistentes.validarRegistro(
                         nombre = nombreTexto.trim(),
                         edad = edadLimpia,
-                        tipoEntrada = tipoEntradaTexto.trim()
+                        tipoEntrada = tipoEntradaTexto.trim(),
+                        cedula = cedulaLimpia
                     )
 
                     // Actualizamos el estado para que la UI reaccione (el "when" de abajo)
@@ -118,6 +139,12 @@ fun SafePassScreen(
                     // Usamos la Función de Orden Superior 'procesarAsistente' si fue un éxito
                     if (resultado is RegistroState.Success) {
                         gestorAsistentes.procesarAsistente(resultado.asistente) { asistenteProcesado ->
+                            // Validando la prioridad como requiere el examen
+                            if (asistenteProcesado.tipoEntrada.equals("VIP", ignoreCase = true)) {
+                                println("Validación de Prioridad: ¡Tiene acceso prioritario!")
+                            } else {
+                                println("Validación de Prioridad: Entrada normal.")
+                            }
                             onRegistrarClick(asistenteProcesado)
                         }
                     }

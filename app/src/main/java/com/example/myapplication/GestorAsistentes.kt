@@ -30,7 +30,7 @@ class GestorAsistentes {
      * Registra un nuevo asistente validando reglas básicas de negocio.
      * Retorna el estado del registro (Success o Error) tras la validación.
      */
-    fun validarRegistro(nombre: String, edad: Int?, tipoEntrada: String): RegistroState {
+    fun validarRegistro(nombre: String, edad: Int?, tipoEntrada: String, cedula:String): RegistroState {
         if (nombre.isBlank() || tipoEntrada.isBlank()) {
             return RegistroState.Error("Faltan datos obligatorios (nombre o tipo de entrada).")
         }
@@ -41,7 +41,8 @@ class GestorAsistentes {
                 val asistente = Asistente(
                     nombre = nombre,
                     edad = edadValida,
-                    tipoEntrada = tipoEntrada
+                    tipoEntrada = tipoEntrada,
+                    cedula = cedula
                 ).apply {
                     // Se usa la función de alcance 'apply' para configurar o registrar un log
                     println("Nuevo asistente configurado: $nombre, Edad: $edad")
